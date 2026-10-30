@@ -2,14 +2,13 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <title>Voice Notes</title>
   <style>
     :root {
       --bg: #121212;
       --card: #1e1e1e;
       --primary: #ef4444;
-      --primary-hover: #dc2626;
       --text: #ffffff;
       --subtext: #a1a1aa;
     }
@@ -21,21 +20,27 @@
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     }
 
-    body {
+    /* Fixed mobile height using dynamic viewport */
+    html, body {
+      height: 100%;
+      height: 100dvh;
       background-color: var(--bg);
       color: var(--text);
-      display: flex;
-      flex-direction: column;
-      height: 100vh;
       overflow: hidden;
     }
 
+    body {
+      display: flex;
+      flex-direction: column;
+    }
+
     header {
-      padding: 20px;
+      padding: 16px;
       text-align: center;
-      font-size: 1.25rem;
+      font-size: 1.1rem;
       font-weight: 700;
       border-bottom: 1px solid #27272a;
+      flex-shrink: 0;
     }
 
     .recordings-list {
@@ -45,11 +50,12 @@
       display: flex;
       flex-direction: column;
       gap: 12px;
+      -webkit-overflow-scrolling: touch;
     }
 
     .recording-card {
       background-color: var(--card);
-      padding: 14px;
+      padding: 12px 14px;
       border-radius: 12px;
       display: flex;
       flex-direction: column;
@@ -59,7 +65,7 @@
     .recording-header {
       display: flex;
       justify-content: space-between;
-      font-size: 0.85rem;
+      font-size: 0.8rem;
       color: var(--subtext);
     }
 
@@ -68,26 +74,29 @@
       height: 36px;
     }
 
+    /* Controls now respect the iPhone/Android bottom home bar */
     .controls {
-      padding: 24px 20px 40px;
-      background: linear-gradient(180deg, transparent, var(--bg) 20%);
+      flex-shrink: 0;
+      padding: 10px 16px calc(16px + env(safe-area-inset-bottom, 16px));
+      background-color: var(--bg);
+      border-top: 1px solid #27272a;
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 12px;
+      gap: 8px;
     }
 
     .timer {
-      font-size: 1.5rem;
+      font-size: 1.25rem;
       font-variant-numeric: tabular-nums;
       color: var(--subtext);
     }
 
     .record-btn {
-      width: 72px;
-      height: 72px;
+      width: 64px;
+      height: 64px;
       border-radius: 50%;
-      border: 4px solid #3f3f46;
+      border: 3px solid #3f3f46;
       background-color: var(--primary);
       cursor: pointer;
       display: flex;
@@ -103,15 +112,15 @@
     }
 
     .record-btn.recording .inner-icon {
-      width: 24px;
-      height: 24px;
+      width: 20px;
+      height: 20px;
       background-color: var(--primary);
       border-radius: 4px;
     }
 
     .inner-icon {
-      width: 28px;
-      height: 28px;
+      width: 24px;
+      height: 24px;
       background-color: white;
       border-radius: 50%;
       transition: all 0.2s ease;
@@ -121,6 +130,7 @@
       text-align: center;
       color: var(--subtext);
       margin-top: 40px;
+      font-size: 0.95rem;
     }
   </style>
 </head>
@@ -129,7 +139,7 @@
   <header>Voice Notes</header>
 
   <main class="recordings-list" id="recordingsList">
-    <div class="empty-state" id="emptyState">No notes yet. Tap record below.</div>
+    <div class="empty-state" id="emptyState">No notes yet. Tap the red button below.</div>
   </main>
 
   <div class="controls">
@@ -162,7 +172,6 @@
         try {
           const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
           
-          // Determine supported mime-type (iOS Safari prefers mp4, others webm)
           const mimeType = MediaRecorder.isTypeSupported('audio/mp4') 
             ? 'audio/mp4' 
             : 'audio/webm';
@@ -177,7 +186,6 @@
           mediaRecorder.onstop = () => {
             const audioBlob = new Blob(audioChunks, { type: mimeType });
             addAudioToUI(audioBlob);
-            // Stop mic tracks to turn off the recording indicator
             stream.getTracks().forEach(track => track.stop());
           };
 
@@ -185,7 +193,6 @@
           isRecording = true;
           recordBtn.classList.add('recording');
           
-          // Start timer
           secondsElapsed = 0;
           timerDisplay.textContent = "00:00";
           timerInterval = setInterval(() => {
@@ -194,11 +201,10 @@
           }, 1000);
 
         } catch (err) {
-          alert("Microphone permission denied or not supported on this browser.");
+          alert("Microphone permission denied or not supported.");
           console.error(err);
         }
       } else {
-        // Stop recording
         mediaRecorder.stop();
         isRecording = false;
         recordBtn.classList.remove('recording');
