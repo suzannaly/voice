@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Voice Notes</title>
+  <style>
+    :root {
+      --bg: #121212;
+      --card: #1e1e1e;
+      --primary: #ef4444;
+      --primary-hover: #dc2626;
+      --text: #ffffff;
+      --subtext: #a1a1aa;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    header {
+      padding: 20px;
+      text-align: center;
+      font-size: 1.25rem;
+      font-weight: 700;
+      border-bottom: 1px solid #27272a;
+    }
+
+    .recordings-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .recording-card {
+      background-color: var(--card);
+      padding: 14px;
+      border-radius: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .recording-header {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.85rem;
+      color: var(--subtext);
+    }
+
+    audio {
+      width: 100%;
+      height: 36px;
+    }
+
+    .controls {
+      padding: 24px 20px 40px;
+      background: linear-gradient(180deg, transparent, var(--bg) 20%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .timer {
+      font-size: 1.5rem;
+      font-variant-numeric: tabular-nums;
+      color: var(--subtext);
+    }
+
+    .record-btn {
+      width: 72px;
+      height: 72px;
+      border-radius: 50%;
+      border: 4px solid #3f3f46;
+      background-color: var(--primary);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s ease;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .record-btn.recording {
+      border-color: #ef4444;
+      background-color: transparent;
+    }
+
+    .record-btn.recording .inner-icon {
+      width: 24px;
+      height: 24px;
+      background-color: var(--primary);
+      border-radius: 4px;
+    }
+
+    .inner-icon {
+      width: 28px;
+      height: 28px;
+      background-color: white;
+      border-radius: 50%;
+      transition: all 0.2s ease;
+    }
+
+    .empty-state {
+      text-align: center;
+      color: var(--subtext);
+      margin-top: 40px;
+    }
+  </style>
+</head>
+<body>
+
+  <header>Voice Notes</header>
+
+  <main class="recordings-list" id="recordingsList">
+    <div class="empty-state" id="emptyState">No notes yet. Tap record below.</div>
+  </main>
+
+  <div class="controls">
+    <div class="timer" id="timer">00:00</div>
+    <button class="record-btn" id="recordBtn" aria-label="Record">
+      <div class="inner-icon"></div>
+    </button>
+  </div>
+
+  <script>
+    let mediaRecorder;
+    let audioChunks = [];
+    let isRecording = false;
+    let timerInterval;
+    let secondsElapsed = 0;
+
+    const recordBtn = document.getElementById('recordBtn');
+    const timerDisplay = document.getElementById('timer');
+    const recordingsList = document.getElementById('recordingsList');
+    const emptyState = document.getElementById('emptyState');
+
+    function formatTime(sec) {
+      const mins = Math.floor(sec / 60).toString().padStart(2, '0');
+      const secs = (sec % 60).toString().padStart(2, '0');
+      return `${mins}:${secs}`;
+    }
+
+    async function toggleRecording() {
+      if (!isRecording) {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          
+          // Determine supported mime-type (iOS Safari prefers mp4, others webm)
+          const mimeType = MediaRecorder.isTypeSupported('audio/mp4') 
+            ? 'audio/mp4' 
+            : 'audio/webm';
+
+          mediaRecorder = new MediaRecorder(stream, { mimeType });
+          audioChunks = [];
+
+          mediaRecorder.ondataavailable = (event) => {
+            if (event.data.size > 0) audioChunks.push(event.data);
+          };
+
+          mediaRecorder.onstop = () => {
+            const audioBlob = new Blob(audioChunks, { type: mimeType });
+            addAudioToUI(audioBlob);
+            // Stop mic tracks to turn off the recording indicator
+            stream.getTracks().forEach(track => track.stop());
+          };
+
+          mediaRecorder.start();
+          isRecording = true;
+          recordBtn.classList.add('recording');
+          
+          // Start timer
+          secondsElapsed = 0;
+          timerDisplay.textContent = "00:00";
+          timerInterval = setInterval(() => {
+            secondsElapsed++;
+            timerDisplay.textContent = formatTime(secondsElapsed);
+          }, 1000);
+
+        } catch (err) {
+          alert("Microphone permission denied or not supported on this browser.");
+          console.error(err);
+        }
+      } else {
+        // Stop recording
+        mediaRecorder.stop();
+        isRecording = false;
+        recordBtn.classList.remove('recording');
+        clearInterval(timerInterval);
+        timerDisplay.textContent = "00:00";
+      }
+    }
+
+    function addAudioToUI(blob) {
+      emptyState.style.display = 'none';
+
+      const audioUrl = URL.createObjectURL(blob);
+      const card = document.createElement('div');
+      card.className = 'recording-card';
+
+      const now = new Date();
+      const timeString = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+      card.innerHTML = `
+        <div class="recording-header">
+          <span>Note ${recordingsList.children.length}</span>
+          <span>${timeString}</span>
+        </div>
+        <audio controls src="${audioUrl}"></audio>
+      `;
+
+      recordingsList.prepend(card);
+    }
+
+    recordBtn.addEventListener('click', toggleRecording);
+  </script>
+</body>
+</html>
