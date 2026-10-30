@@ -11,6 +11,7 @@
       --primary: #ef4444;
       --text: #ffffff;
       --subtext: #a1a1aa;
+      --border: #27272a;
     }
 
     * {
@@ -20,7 +21,6 @@
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     }
 
-    /* Fixed mobile height using dynamic viewport */
     html, body {
       height: 100%;
       height: 100dvh;
@@ -39,7 +39,7 @@
       text-align: center;
       font-size: 1.1rem;
       font-weight: 700;
-      border-bottom: 1px solid #27272a;
+      border-bottom: 1px solid var(--border);
       flex-shrink: 0;
     }
 
@@ -55,17 +55,18 @@
 
     .recording-card {
       background-color: var(--card);
-      padding: 12px 14px;
-      border-radius: 12px;
+      padding: 14px;
+      border-radius: 14px;
       display: flex;
       flex-direction: column;
-      gap: 8px;
+      gap: 10px;
     }
 
     .recording-header {
       display: flex;
       justify-content: space-between;
-      font-size: 0.8rem;
+      align-items: center;
+      font-size: 0.85rem;
       color: var(--subtext);
     }
 
@@ -74,12 +75,41 @@
       height: 36px;
     }
 
-    /* Controls now respect the iPhone/Android bottom home bar */
+    .card-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      margin-top: 2px;
+    }
+
+    .action-btn {
+      background-color: #27272a;
+      color: #e4e4e7;
+      border: none;
+      padding: 6px 12px;
+      border-radius: 8px;
+      font-size: 0.8rem;
+      font-weight: 500;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .action-btn:active {
+      opacity: 0.8;
+    }
+
+    .delete-btn {
+      color: #f87171;
+    }
+
     .controls {
       flex-shrink: 0;
       padding: 10px 16px calc(16px + env(safe-area-inset-bottom, 16px));
       background-color: var(--bg);
-      border-top: 1px solid #27272a;
+      border-top: 1px solid var(--border);
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -139,7 +169,7 @@
   <header>Voice Notes</header>
 
   <main class="recordings-list" id="recordingsList">
-    <div class="empty-state" id="emptyState">No notes yet. Tap the red button below.</div>
+    <div class="empty-state" id="emptyState">No notes yet. Tap the red button to record.</div>
   </main>
 
   <div class="controls">
@@ -150,6 +180,27 @@
   </div>
 
   <script>
+    // --- DATABASE SETUP (IndexedDB) ---
+    let db;
+    const request = indexedDB.open('VoiceNotesDB', 1);
+
+    request.onupgradeneeded = (e) => {
+      db = e.target.result;
+      if (!db.objectStoreNames.contains('notes')) {
+        db.createObjectStore('notes', { keyPath: 'id', autoIncrement: true });
+      }
+    };
+
+    request.onsuccess = (e) => {
+      db = e.target.result;
+      loadSavedNotes();
+    };
+
+    request.onerror = (e) => {
+      console.error("Database error: ", e);
+    };
+
+    // --- APP LOGIC ---
     let mediaRecorder;
     let audioChunks = [];
     let isRecording = false;
@@ -185,7 +236,7 @@
 
           mediaRecorder.onstop = () => {
             const audioBlob = new Blob(audioChunks, { type: mimeType });
-            addAudioToUI(audioBlob);
+            saveNoteToDB(audioBlob, mimeType);
             stream.getTracks().forEach(track => track.stop());
           };
 
@@ -201,7 +252,7 @@
           }, 1000);
 
         } catch (err) {
-          alert("Microphone permission denied or not supported.");
+          alert("Microphone access denied or unavailable.");
           console.error(err);
         }
       } else {
@@ -213,25 +264,115 @@
       }
     }
 
-    function addAudioToUI(blob) {
+    function saveNoteToDB(blob, mimeType) {
+      const now = new Date();
+      const noteItem = {
+        blob: blob,
+        mimeType: mimeType,
+        date: now.toLocaleDateString([], { month: 'short', day: 'numeric' }),
+        time: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        timestamp: Date.now()
+      };
+
+      const tx = db.transaction(['notes'], 'readwrite');
+      const store = tx.objectStore('notes');
+      const addRequest = store.add(noteItem);
+
+      addRequest.onsuccess = (e) => {
+        noteItem.id = e.target.result;
+        renderCard(noteItem, true);
+      };
+    }
+
+    function loadSavedNotes() {
+      const tx = db.transaction(['notes'], 'readonly');
+      const store = tx.objectStore('notes');
+      const getAllRequest = store.getAll();
+
+      getAllRequest.onsuccess = (e) => {
+        const notes = e.target.result;
+        if (notes.length > 0) {
+          emptyState.style.display = 'none';
+          notes.sort((a, b) => a.timestamp - b.timestamp);
+          notes.forEach(note => renderCard(note, false));
+        }
+      };
+    }
+
+    function deleteNote(id, cardElement) {
+      const tx = db.transaction(['notes'], 'readwrite');
+      const store = tx.objectStore('notes');
+      store.delete(id);
+
+      tx.oncomplete = () => {
+        cardElement.remove();
+        if (recordingsList.querySelectorAll('.recording-card').length === 0) {
+          emptyState.style.display = 'block';
+        }
+      };
+    }
+
+    async function shareOrDownloadNote(blob, filename) {
+      const file = new File([blob], filename, { type: blob.type });
+
+      // Try phone native share sheet first (iOS/Android "Save to Files")
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        try {
+          await navigator.share({
+            files: [file],
+            title: filename,
+          });
+          return;
+        } catch (err) {
+          if (err.name !== 'AbortError') console.error(err);
+        }
+      }
+
+      // Fallback for browsers that don't support file sharing
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+
+    function renderCard(note, prepend = false) {
       emptyState.style.display = 'none';
 
-      const audioUrl = URL.createObjectURL(blob);
+      const audioUrl = URL.createObjectURL(note.blob);
+      const ext = note.mimeType.includes('mp4') ? 'mp4' : 'webm';
+      const fileName = `VoiceNote-${note.timestamp}.${ext}`;
+
       const card = document.createElement('div');
       card.className = 'recording-card';
-
-      const now = new Date();
-      const timeString = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
       card.innerHTML = `
         <div class="recording-header">
-          <span>Note ${recordingsList.children.length}</span>
-          <span>${timeString}</span>
+          <strong>${note.date}</strong>
+          <span>${note.time}</span>
         </div>
-        <audio controls src="${audioUrl}"></audio>
+        <audio controls src="${audioUrl}" playsinline></audio>
+        <div class="card-actions">
+          <button class="action-btn delete-btn">Delete</button>
+          <button class="action-btn share-btn">Save / Share</button>
+        </div>
       `;
 
-      recordingsList.prepend(card);
+      card.querySelector('.delete-btn').addEventListener('click', () => {
+        deleteNote(note.id, card);
+      });
+
+      card.querySelector('.share-btn').addEventListener('click', () => {
+        shareOrDownloadNote(note.blob, fileName);
+      });
+
+      if (prepend) {
+        recordingsList.prepend(card);
+      } else {
+        recordingsList.prepend(card);
+      }
     }
 
     recordBtn.addEventListener('click', toggleRecording);
